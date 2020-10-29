@@ -260,23 +260,6 @@ class DataSource(ErrorLogger):
         # TODO: log records with missing key somewhere on disk
         data = data.dropna(subset=["key"])
 
-        # Aggregate records if requested by the config
-        if "aggregate" in self.config:
-            if "subregion2" in self.config["aggregate"]:
-                agg_cols = self.config["aggregate"]["subregion2"]
-                l2 = data[data["key"].apply(lambda x: len(x.split("_")) == 3)].copy()
-                # TODO: remove localities to ensure we only aggregate subregion2 locations
-                l2["subregion1_key"] = l2["key"].apply(lambda x: x.rsplit("_", 1)[0])
-                l1 = l2.groupby(["date", "subregion1_key"])[agg_cols].sum().reset_index()
-                data.loc[l1.index] = l1.rename(columns={"subregion1_key": "key"})
-            if "subregion1" in self.config["aggregate"]:
-                agg_cols = self.config["aggregate"]["subregion1"]
-                l1 = data[data["key"].apply(lambda x: len(x.split("_")) == 2)].copy()
-                # TODO: remove localities to ensure we only aggregate subregion2 locations
-                l1["country_code"] = l1["key"].apply(lambda x: x.rsplit("_", 1)[0])
-                l0 = l1.groupby(["date", "country_code"])[agg_cols].sum().reset_index()
-                data.loc[l0.index] = l0.rename(columns={"country_code": "key"})
-
         # Filter out data according to the user-provided filter function
         if "query" in self.config:
             data = data.query(self.config["query"]).copy()
@@ -284,6 +267,25 @@ class DataSource(ErrorLogger):
         # Provide a stratified view of certain key variables
         if any(stratify_column in data.columns for stratify_column in ("age", "sex")):
             data = stratify_age_sex_ethnicity(data)
+
+        # Aggregate records if requested by the config
+        if "aggregate" in self.config:
+
+            if "subregion2" in self.config["aggregate"]:
+                agg_cols = self.config["aggregate"]["subregion2"]
+                l2 = data[data["key"].apply(lambda x: len(x.split("_")) == 3)].copy()
+                l2 = l2[~l2["key"].isin(aux["localities"]["locality"].values)]
+                l2["subregion1_key"] = l2["key"].apply(lambda x: x.rsplit("_", 1)[0])
+                l1 = l2.groupby(["date", "subregion1_key"])[agg_cols].sum().reset_index()
+                data.loc[l1.index] = l1.rename(columns={"subregion1_key": "key"})
+
+            if "subregion1" in self.config["aggregate"]:
+                agg_cols = self.config["aggregate"]["subregion1"]
+                l1 = data[data["key"].apply(lambda x: len(x.split("_")) == 2)].copy()
+                l1 = l1[~l1["key"].isin(aux["localities"]["locality"].values)]
+                l1["country_code"] = l1["key"].apply(lambda x: x.rsplit("_", 1)[0])
+                l0 = l1.groupby(["date", "country_code"])[agg_cols].sum().reset_index()
+                data.loc[l0.index] = l0.rename(columns={"country_code": "key"})
 
         # Process each record to add missing cumsum or daily diffs
         data = infer_new_and_total(data)
